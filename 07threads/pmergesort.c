@@ -27,8 +27,6 @@ typedef struct {
   int soglia; 
 } array;
 
-
-
 // funzione eseguita dai thread ausiliari
 // ordina con qsort oppure divide array 
 // e ordina in parallelo con un thread ausiliario 
@@ -53,7 +51,8 @@ void *tbody(void *arg)
     pthread_t t;
     xpthread_create(&t,NULL,&tbody,&g,__LINE__,__FILE__);
     // sort prima metà
-    pmergesort(d->a,n1,d->soglia);
+    d->m = n1;
+    tbody((void *)d);
     xpthread_join(t,NULL,__LINE__,__FILE__);
     // merge con array ausiliario
     int *tmp = malloc(d->m*sizeof(int));
@@ -78,27 +77,11 @@ void pmergesort(int *a, int m, int soglia)
   if (m <= soglia)
     qsort(a,m,sizeof(int),&intcmp);
   else {
-    // creo thread con seconda metà array da ordinare
-    assert(m>1);
-    int n1 = m/2;
-    int n2 = m - n1;
-    fprintf(stderr,"Creo thread che esegue sorting su %d elementi\n",n2);
     array g;
-    g.a = &a[n1];
-    g.m = n2;
+    g.a = a;
+    g.m = m;
     g.soglia = soglia;
-    pthread_t t;
-    xpthread_create(&t,NULL,&tbody,&g,__LINE__,__FILE__);
-    // sort prima metà con chiamata ricorsiva
-    pmergesort(a,n1,soglia);
-    xpthread_join(t,NULL,__LINE__,__FILE__);
-    // merge con array ausiliario
-    int *tmp = malloc(m*sizeof(int));
-    assert(tmp!=NULL);
-    merge(a,n1,g.a,g.m,tmp);
-    for(int i=0;i<m;i++)
-      a[i] = tmp[i];
-    free(tmp);
+    tbody((void *)&g);
   }
 } 
 

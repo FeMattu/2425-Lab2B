@@ -10,6 +10,7 @@
 typedef struct {
   int readers;
   bool writing;
+  bool pref_writer;      // true se preferisco scrittori
   int wpending;
   pthread_cond_t cond;   // condition variable
   pthread_mutex_t mutex; // mutex associato alla condition variable
@@ -31,7 +32,7 @@ void read_lock(rw *z)
   fprintf(stderr,"%2d read request\n", gettid()%100);
   pthread_mutex_lock(&z->mutex);
   // se si elimina il test su z->wpending si ha la soluzione unfair per gli scrittori 
-  while(z->writing==true || z->wpending>0)
+  while(z->writing || z->pref_writer)
     pthread_cond_wait(&z->cond, &z->mutex);   // attende fine scrittura
   z->readers++;
   pthread_mutex_unlock(&z->mutex);
@@ -56,6 +57,7 @@ void write_lock(rw *z)
   fprintf(stderr,"%2d write request\n", gettid()%100);
   pthread_mutex_lock(&z->mutex);
   z->wpending += 1;
+  z->pref_writer = true;
   while(z->writing || z->readers>0)
     // attende fine scrittura o lettura
     pthread_cond_wait(&z->cond, &z->mutex);   
@@ -70,7 +72,11 @@ void write_unlock(rw *z)
   fprintf(stderr,"%2d write completed\n", gettid()%100);
   pthread_mutex_lock(&z->mutex);
   assert(z->writing);
-  z->writing=false;               // cambio stato
+  z->writing=false;   // cambio stato
+
+  if(z->wpending == 0)
+    z->pref_writer = false;
+                 
   // segnala a tutti quelli in attesa 
   pthread_cond_broadcast(&z->cond);  
   pthread_mutex_unlock(&z->mutex);

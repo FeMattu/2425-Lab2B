@@ -149,7 +149,7 @@ int main(int argc, char *argv[])
     ac[i].full = &full;
     xpthread_create(&cons[i], NULL, &cbody, &ac[i],QUI);     
   }
-  fprintf(stderr,"Thread consumatori creati");
+  fprintf(stderr,"Thread consumatori creati\n\n");
   // creo tutti i produttori
   for(int i=0;i<tp;i++) {
     ap[i].ppindex = &pindex;

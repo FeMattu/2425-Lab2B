@@ -35,32 +35,49 @@ void *tbody(void *arg)
   array *d = (array *)arg;
   // se l'array ha meno elementi di soglia
   // ordino con qsort
-  if (d->m <= d->soglia)
-    qsort(d->a,d->m,sizeof(int),&intcmp);
-  else {
+  if (d->m <= d->soglia) {
+    qsort(d->a, d->m, sizeof(int), &intcmp);
+  } else {
     // divido il problema in due
-    assert(d->m>1);
-    int n1 = d->m/2;
-    int n2 = d->m - n1;
-    // creo thread con seconda metà array da ordinare
-    fprintf(stderr,"Creo thread che esegue sorting su %d elementi\n",n2);
-    array g;
-    g.a = &d->a[n1];
-    g.m = n2;
-    g.soglia = d->soglia;
+    assert(d->m > 1);
+    int original_m = d->m;  // Salva la dimensione originale
+    int n1 = original_m / 2;
+    int n2 = original_m - n1;
+
+    // Crea una struct dinamica per il thread
+    array *g = malloc(sizeof(array));
+    if (g == NULL) {
+      perror("malloc failed");
+      exit(EXIT_FAILURE);
+    }
+    g->a = &d->a[n1];
+    g->m = n2;
+    g->soglia = d->soglia;
+
     pthread_t t;
-    xpthread_create(&t,NULL,&tbody,&g,__LINE__,__FILE__);
-    // sort prima metà
-    d->m = n1;
-    tbody((void *)d);
-    xpthread_join(t,NULL,__LINE__,__FILE__);
-    // merge con array ausiliario
-    int *tmp = malloc(d->m*sizeof(int));
-    assert(tmp!=NULL);
-    merge(d->a,n1,g.a,g.m,tmp);
-    // copia da array ausiliario e deallocalo 
-    for(int i=0;i<d->m;i++)
+    fprintf(stderr, "Creo thread che esegue sorting su %d elementi\n", n2);
+    xpthread_create(&t, NULL, &tbody, g, __LINE__, __FILE__);
+
+    // Ordina la prima metà nel thread corrente
+    d->m = n1;  // Modifica la dimensione per la prima metà
+    tbody(d);
+
+    // Attendi il completamento del thread e libera la memoria
+    xpthread_join(t, NULL, __LINE__, __FILE__);
+    free(g);
+
+    // Unisci le due metà ordinate
+    int *tmp = malloc(original_m * sizeof(int));
+    if (tmp == NULL) {
+      perror("malloc tmp failed");
+      exit(EXIT_FAILURE);
+    }
+    merge(d->a, n1, d->a + n1, n2, tmp);
+
+    // Copia l'array unito nell'array originale
+    for (int i = 0; i < original_m; i++) {
       d->a[i] = tmp[i];
+    }
     free(tmp);
   }
   pthread_exit(NULL);
@@ -72,17 +89,10 @@ void *tbody(void *arg)
 // usando un thread ausiliario
 void pmergesort(int *a, int m, int soglia)
 {  
-  // se l'array ha meno elementi di soglia
-  // ordino con qsort
-  if (m <= soglia)
-    qsort(a,m,sizeof(int),&intcmp);
-  else {
-    array g;
-    g.a = a;
-    g.m = m;
-    g.soglia = soglia;
-    tbody((void *)&g);
-  }
+  array g = {a,m,soglia};
+  pthread_t t;
+  xpthread_create(&t, NULL, &tbody, &g, __LINE__, __FILE__);
+  xpthread_join(t, NULL, __LINE__, __FILE__);
 } 
 
  

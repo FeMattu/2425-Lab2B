@@ -144,7 +144,7 @@ int main(int argc, char *argv[])
     a[i].sem_data_items = &sem_data_items;
     a[i].sem_free_slots = &sem_free_slots;
     #ifdef USE_BARRIER
-    a[i].fine_file = &bar_fine_file;
+    a[i].fine_file = &ba                     r_fine_file;
     #else
     a[i].sem_contatore = &sem_contatore;
     a[i].sem_contatore2 = &sem_contatore2;

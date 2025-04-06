@@ -57,7 +57,7 @@ void* tbody(void* a){
         d->buffer[(*d->pindex)++ % BUFFER_SIZE]=blocco;
         xpthread_mutex_unlock(d->mutex, QUI);
         xsem_post(d->sem_data_items,QUI);               // seganlo che è stato aggiunto un blocco nel buffer
-        fprintf(stdout, "[P] Blocco dati di %zu in %s caricato nel buffer\n", letti, d->filename);
+        fprintf(stdout, "[P] Blocco dati da %zu interi in %s caricato nel buffer\n", letti, d->filename);
     }
     fclose(f);
     xpthread_mutex_lock(d->mufilerim, QUI);
@@ -65,7 +65,9 @@ void* tbody(void* a){
     xpthread_mutex_unlock(d->mufilerim, QUI);
     //dato sentinella per seganlare al consumatore che sono finiti i dati da leggere
     xsem_wait(d->sem_free_slots, QUI);
+    xpthread_mutex_lock(d->mutex,QUI);
     d->buffer[(*d->pindex)++%BUFFER_SIZE]=SENTINELLA;
+    xpthread_mutex_unlock(d->mutex, QUI);
     xsem_post(d->sem_data_items, QUI);
 
     fprintf(stdout, "[P] Dati del file %s scritti nel buffer\n", d->filename);
@@ -140,6 +142,10 @@ int main(int argc, char *argv[]){
         int *blocco;    //blocco dati da leggere
         xsem_wait(&sem_data_items, QUI);
         blocco = buffer[cindex%BUFFER_SIZE];
+        xpthread_mutex_lock(&mu,QUI);       
+        buffer[cindex%BUFFER_SIZE] = NULL;  // rimuovo il blocco poichè se non viene tolto va in deadlock
+        xpthread_mutex_unlock(&mu,QUI);
+        xsem_post(&sem_free_slots, QUI);
         if(blocco != SENTINELLA){
             fprintf(stdout, "[C] Blocco valido ricevuto: elaboro...\n");
             minmax(blocco,BLOCK_SIZE,&min,&max);
@@ -148,12 +154,11 @@ int main(int argc, char *argv[]){
         cindex+=1;
         //controllo se sono ancora presenti dati nel buffer quando sono stati letti tutti i file
         xpthread_mutex_lock(&mufilerim, QUI);
-        if(filerim<=0 && blocco==SENTINELLA){
+        if(filerim==0 && blocco==SENTINELLA){
             int dati = false;
             for(int i=0; i<BUFFER_SIZE; i++)
-                if(buffer[i]!=NULL &&  !dati){
+                if((buffer[i]!=SENTINELLA || buffer[i]!=NULL) && !dati){
                     dati=true;
-                    cindex=i;
                     break;
                 }
             if(!dati) {
@@ -162,7 +167,6 @@ int main(int argc, char *argv[]){
             }
         }
         xpthread_mutex_unlock(&mufilerim, QUI);
-        xsem_post(&sem_free_slots, QUI);
     }
     fprintf(stdout,"[C] Fine lettura, non ci sono più dati nel buffer\n");
     fprintf(stdout, "[C] Minimo calcolato: %d\tMassimo calcolato: %d\n", min,max);

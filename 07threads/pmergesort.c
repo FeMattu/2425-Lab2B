@@ -11,6 +11,8 @@
 #include <string.h>   // funzioni per stringhe
 #include "xerrori.h"
 
+#define QUI __LINE__,__FILE__
+
 
 // prototipi delle funzioni che appaiono dopo il main()
 void merge(int a[], int na, int c[], int nc, int b[]);
@@ -32,55 +34,56 @@ typedef struct {
 // e ordina in parallelo con un thread ausiliario 
 void *tbody(void *arg)
 {  
-  array *d = (array *)arg;
-  // se l'array ha meno elementi di soglia
-  // ordino con qsort
-  if (d->m <= d->soglia) {
-    qsort(d->a, d->m, sizeof(int), &intcmp);
+  array *origarg = (array *)arg;    // Casting degli argomenti per il thread
+  array d = *origarg;               // Copia locale degli argomenti
+
+  // Se l'array ha meno elementi di soglia ordino con qsort
+  if (d.m <= d.soglia) {
+    qsort(d.a, d.m, sizeof(int), &intcmp);
   } else {
     // divido il problema in due
-    assert(d->m > 1);
-    int original_m = d->m;  // Salva la dimensione originale
-    int n1 = original_m / 2;
-    int n2 = original_m - n1;
+    assert(d.m > 1);
+    int n1 = origarg->m / 2;  //Dimensione prima metà
+    int n2 = origarg->m - n1; //Dimesnione seconda metà
 
+    // Ordino seconda metà
     // Crea una struct dinamica per il thread
-    array *g = malloc(sizeof(array));
-    if (g == NULL) {
+    array *right = malloc(sizeof(array));
+    if (right == NULL) {
       perror("malloc failed");
       exit(EXIT_FAILURE);
     }
-    g->a = &d->a[n1];
-    g->m = n2;
-    g->soglia = d->soglia;
+    right->a = &d.a[n1];
+    right->m = n2;
+    right->soglia = d.soglia;
 
     pthread_t t;
     fprintf(stderr, "Creo thread che esegue sorting su %d elementi\n", n2);
-    xpthread_create(&t, NULL, &tbody, g, __LINE__, __FILE__);
+    xpthread_create(&t, NULL, &tbody, right, QUI);
 
     // Ordina la prima metà nel thread corrente
-    d->m = n1;  // Modifica la dimensione per la prima metà
-    tbody(d);
+    array left = {.a = d.a, .m = n1, .soglia = d.soglia};
+    fprintf(stderr, "Eseguo sorting della prima metà su %d elementi\n", n1);
+    tbody(&left);
 
     // Attendi il completamento del thread e libera la memoria
-    xpthread_join(t, NULL, __LINE__, __FILE__);
-    free(g);
+    xpthread_join(t, NULL, QUI);
+    free(right);
 
     // Unisci le due metà ordinate
-    int *tmp = malloc(original_m * sizeof(int));
+    int *tmp = malloc(origarg->m * sizeof(int));
     if (tmp == NULL) {
       perror("malloc tmp failed");
       exit(EXIT_FAILURE);
     }
-    merge(d->a, n1, d->a + n1, n2, tmp);
-
+    merge(d.a, n1, d.a + n1, n2, tmp);
     // Copia l'array unito nell'array originale
-    for (int i = 0; i < original_m; i++) {
-      d->a[i] = tmp[i];
+    for (int i = 0; i < origarg->m; i++) {
+      d.a[i] = tmp[i];
     }
     free(tmp);
   }
-  pthread_exit(NULL);
+  return NULL;
 } 
 
 // entry point dell'algoritmo di mergesort parallelo
@@ -89,10 +92,16 @@ void *tbody(void *arg)
 // usando un thread ausiliario
 void pmergesort(int *a, int m, int soglia)
 {  
-  array g = {a,m,soglia};
+  if(m<=soglia){
+    qsort(a,m,sizeof(int),&intcmp);
+    return;
+  }
+
+  //creeo nuovo thread per effettuare il sort
+  array d = {a,m,soglia};
   pthread_t t;
-  xpthread_create(&t, NULL, &tbody, &g, __LINE__, __FILE__);
-  xpthread_join(t, NULL, __LINE__, __FILE__);
+  xpthread_create(&t,NULL,&tbody,&d,QUI);
+  xpthread_join(t,NULL,QUI);
 } 
 
  

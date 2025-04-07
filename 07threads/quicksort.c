@@ -8,6 +8,9 @@
 #include <string.h>   // funzioni per stringhe
 #include "xerrori.h"
 
+#define QUI __LINE__,__FILE__
+#define SOGLIA_PARALLELO 100
+
 // prototipi delle funzioni che appaiono dopo il main()
 int *random_array(int n, int seed);
 void quicksort(int b[], int n);
@@ -52,6 +55,38 @@ int main(int argc, char *argv[])
   return 0;
 }
 
+typedef struct{
+  int *a;
+  int *i;
+  int *j;
+  int pivot;
+  bool *done;
+  pthread_mutex_t *mu;
+  pthread_cond_t *found_element_less_then_pivot;
+}partition_data;
+
+void *tbody(void *arg){
+  partition_data *d = (partition_data *)arg;
+
+  while(true){
+    xpthread_mutex_lock(d->mu, QUI);
+    if((*d->done)) {  //se il thread principale ha finito si esce
+      xpthread_mutex_unlock(d->mu, QUI);
+      break;
+    }   
+    while(--(*d->j) >= 0){
+      if(d->a[*d->j]<=d->pivot){ // esce se a[j]<=pivot
+        fprintf(stdout, "[DEBUG] [THREAD] Decremento di j:%d i:%i\n",(*d->j), (*d->i));
+        xpthread_cond_signal(d->found_element_less_then_pivot,QUI); //segnalo al thread principale
+        break;
+      }
+    } 
+    xpthread_mutex_unlock(d->mu, QUI);
+    sched_yield(); //rilascio la CPU
+  }
+
+  return NULL;
+}
 
 
 // procedura di partizionamento di un array a[0..n-1]
@@ -70,17 +105,62 @@ int partition(int a[], int n)
   // l'elemento pivot svolge anche la funzione di sentinella  
   int i= -1;      // puntatore oltre estremo sinistro
   int j = n;      //puntatore oltre estremo destro
-  while(1) {
-    while(a[--j]>pivot) 
-      ; // esce se a[j]<=pivot
-    while(a[++i]<pivot) 
-      ; // esce se a[i]>=pivot
-    if(i<j) {
-      // scambia a[i] <-> a[j]
-      int t=a[i]; a[i]=a[j]; a[j]=t;
+
+  // Se la dimensione è sotto la soglia effettuo partizionamento sequenziale
+  if(n < SOGLIA_PARALLELO){
+    while(1) {
+      while(a[--j]>pivot) ; // esce se a[j]<=pivot
+      while(a[++i]<pivot) ; // esce se a[i]>=pivot
+      if(i<j) {
+        // scambia a[i] <-> a[j]
+        int t=a[i]; a[i]=a[j]; a[j]=t;
+      }
+      else break; 
     }
-    else break; 
+  // altrimenti effetto partizionamento parallelo
+  }else{
+    //dati per la sincronizzazione
+    bool done=false;
+    pthread_mutex_t mu = PTHREAD_MUTEX_INITIALIZER;
+    pthread_cond_t found_element_less_then_pivot = PTHREAD_COND_INITIALIZER;
+    
+    partition_data datas;
+    datas.a = a;
+    datas.i = &i;
+    datas.j = &j;
+    datas.pivot = pivot;
+    datas.done = &done;
+    datas.mu = &mu;
+    datas.found_element_less_then_pivot = &found_element_less_then_pivot;
+
+    //creo thread per la gestione dell'indice decrescente (j)
+    pthread_t t;
+    xpthread_create(&t, NULL, &tbody, &datas, QUI);
+
+    while(true) {
+      while(a[++i]<pivot){
+        fprintf(stdout, "[DEBUG] Incremento di i:%d j:%i\n",i, j);
+      }; // esce se a[i]>=pivot
+
+      xpthread_mutex_lock(&mu, QUI);
+      xpthread_cond_wait(&found_element_less_then_pivot, &mu, QUI);
+      if(i<j) {
+        // scambia a[i] <-> a[j]
+        int t=a[i]; a[i]=a[j]; a[j]=t;
+      }
+      else {
+        done = true;
+        xpthread_mutex_unlock(&mu, QUI);
+        break;
+      }; 
+      xpthread_mutex_unlock(&mu, QUI);
+    }
+
+    xpthread_join(t, NULL, QUI);
+    xpthread_mutex_destroy(&mu, QUI);
+    xpthread_cond_destroy(&found_element_less_then_pivot, QUI);
   }
+
   // la prima meta' e' a[0] .. a[j] quindi ha j+1 elementi   
   assert(j+1 >0);
   assert(j+1 < n);
@@ -98,7 +178,6 @@ void quicksort(int b[], int n) {
     quicksort(b+q,n-q);   // chiamata ricorsiva seconda parte
   }
 }
-
 
 
 // genera array di n elementi con interi random tra 0 e 999999 
